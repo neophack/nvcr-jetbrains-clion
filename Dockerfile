@@ -45,8 +45,23 @@ RUN chmod 644 $PROJECTOR_DIR/ide/projector-server/lib/*
 
 
 # -------------配置运行环境
+#	Ubuntu 20.04
+# Note: Container image 21.06-py3 contains Python 3.8.
+# NVIDIA CUDA 11.3.1
+# cuBLAS 11.5.1.109
+# NVIDIA cuDNN 8.2.1
+# NVIDIA NCCL 2.9.9 (optimized for NVLink™ )
+# Note: Although NCCL is packaged in the container, it does not affect TensorRT nor inferencing in any way.
+# rdma-core 32.1
+# OpenMPI 4.1.1rc1
+# OpenUCX 1.10.1
+# GDRCopy 2.2
+# NVIDIA HPC-X 2.8.2rc3
+# Nsight Compute 2021.1.0.18
+# Nsight Systems 2021.2.1.58
+# TensorRT 7.2.3.4
+FROM nvcr.io/nvidia/tensorrt:21.06-py3 
 
-FROM nvcr.io/nvidia/tensorrt:21.09-py3
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ Asia/Shanghai
@@ -95,7 +110,6 @@ RUN true \
 # 为IDE安装特定包：
     && apt-get update \
     && apt-get install build-essential clang -y \
-    
 # clean apt to reduce image size:
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/cache/apt
@@ -110,7 +124,6 @@ RUN true \
     && set -e \
 # Activate debugging to show execution details: all commands will be printed before execution
     && set -x \
-
 # change user to non-root (http://pjdietz.com/2016/08/28/nginx-in-docker-without-root.html):
     # && mv $PROJECTOR_DIR/$PROJECTOR_USER_NAME /home \
     && chmod g+rw /home && mkdir -p /home/$PROJECTOR_USER_NAME && mkdir -p /home/project \
@@ -125,7 +138,7 @@ RUN true \
 
 RUN apt-get update && \
     apt-get -y install --no-install-recommends python3 net-tools curl git wget sudo gosu ca-certificates make libxss1 libsecret-1-dev && \
-    apt-get -y install --no-install-recommends libopencv-dev libeigen3-dev fonts-wqy-microhei ttf-wqy-zenhei gdb gdbserver  && \
+    apt-get -y install --no-install-recommends libopencv-dev libeigen3-dev fonts-wqy-microhei ttf-wqy-zenhei gdb gdbserver libceres-dev && \
     apt-get clean && \
     apt-get autoremove -y && \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
@@ -203,20 +216,11 @@ RUN \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
     
 
-
-
 # Install others
-# RUN \
-#     apt-get update && \
-#     apt-get install -y --no-install-recommends libopencv-dev libeigen3-dev fonts-wqy-microhei ttf-wqy-zenhei gdb gdbserver && \
-#     apt-get clean && \
-#     apt-get autoremove -y && \
-#     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
 
 RUN \
     apt-get update && \
     apt-get install -y nginx nginx-common && \
-    # create log dir and file - otherwise openresty will throw an error
     mkdir -p /var/log/nginx/ && \
     touch /var/log/nginx/upstream.log && \
     # Cleanup
@@ -224,7 +228,57 @@ RUN \
     apt-get autoremove -y && \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
 
-ENV PATH=/usr/local/openresty/nginx/sbin:$PATH
+RUN \
+    apt-get update && \
+    apt-get install -y locales && \
+    sed -i -e 's/# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen && \
+    locale-gen && \
+    dpkg-reconfigure --frontend=noninteractive locales  &&\
+    # Cleanup
+    apt-get clean && \
+    apt-get autoremove -y && \
+    rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
+
+RUN \
+    apt-get update && \
+    apt-get install -y fcitx && \
+    apt-get install -y fcitx-googlepinyin fcitx-pinyin fcitx-sunpinyin && \
+    apt-get install -y libgsettings-qt-dev qt5-default libqt5qml5 libxss-dev && \
+    # Cleanup
+    apt-get clean && \
+    apt-get autoremove -y && \
+    rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
+
+RUN im-config -n fcitx
+
+# ros2
+ARG ROS_DISTRO=galactic
+ARG INSTALL_PACKAGE=desktop
+
+RUN apt-get update -q && \
+    apt-get install -y curl gnupg2 lsb-release && \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
+    apt-get update -q && \
+    apt-get install -y ros-${ROS_DISTRO}-${INSTALL_PACKAGE} \
+    python3-argcomplete \
+    python3-colcon-common-extensions \
+    python3-rosdep python3-vcstool \
+    ros-${ROS_DISTRO}-gazebo-ros-pkgs && \
+    rosdep init && \
+    # Cleanup
+    apt-get clean && \
+    apt-get autoremove -y && \
+    rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
+
+RUN gosu ide rosdep update 
+    # && \
+    # grep -F "source /opt/ros/${ROS_DISTRO}/setup.bash" /home/ide/.bashrc || echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/ide/.bashrc && \
+    # sudo chown ide:ide /home/ide/.bashrc
+
+# temporally fix to enable resize uri
+# https://github.com/fcwu/docker-ubuntu-vnc-desktop/pull/247
+# RUN sed -i "s#location ~ .*/(api/.*|websockify) {#location ~ .*/(api/.*|websockify|resize) {#" /etc/nginx/sites-enabled/default
   
 USER $PROJECTOR_USER_NAME
 ENV HOME /home/$PROJECTOR_USER_NAME
@@ -233,8 +287,11 @@ ENV HOME /home/$PROJECTOR_USER_NAME
 RUN sudo echo "Running 'sudo' for ide: success" && \
     # create .bashrc.d folder and source it in the bashrc
     mkdir -p /home/$PROJECTOR_USER_NAME/.bashrc.d && \
-    (echo; echo "for i in \$(ls -A \$HOME/.bashrc.d/); do source \$HOME/.bashrc.d/\$i; done"; echo) >> /home/$PROJECTOR_USER_NAME/.bashrc
-
+    (echo; echo "for i in \$(ls -A \$HOME/.bashrc.d/); do source \$HOME/.bashrc.d/\$i; done"; echo) >> /home/$PROJECTOR_USER_NAME/.bashrc  && \
+    echo "export CUDACXX=/usr/local/cuda/bin/nvcc"  >> $HOME/.bashrc  && \
+    echo "export CUDA_HOME=/usr/local/cuda"  >> $HOME/.bashrc  && \
+    echo "export PATH=$PATH:\$CUDA_HOME/bin" >> $HOME/.bashrc && \
+    echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:\$CUDA_HOME/lib64" >> $HOME/.bashrc
 
 EXPOSE 8887
 
