@@ -72,9 +72,9 @@ echo "Starting with USER_PASS : $USER_PASS"
     #exec /usr/sbin/sshd -D -e "$@"
     #/usr/sbin/sshd
 
-    sudo $PROJECTOR_DIR/start-vnc-server.sh &
-    cd $PROJECTOR_DIR/novnc/utils/websockify/
-    python3 -m websockify --web  $PROJECTOR_DIR/novnc/ 6901 127.0.0.1:5901 &
+    # sudo $PROJECTOR_DIR/start-vnc-server.sh &
+    # cd $PROJECTOR_DIR/novnc/utils/websockify/
+    # python3 -m websockify --web  $PROJECTOR_DIR/novnc/ 6901 127.0.0.1:5901 &
     echo "-----smartide-----Starting gosu ide"
     sudo nginx 
     echo "root:$USER_PASS" | sudo chpasswd
